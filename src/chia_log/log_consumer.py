@@ -76,6 +76,36 @@ class FileLogConsumer(LogConsumer):
                 self._notify_subscribers(log_line)
 
 
+class JournalLogConsumer(LogConsumer):
+    """Specific implementation for a journald consumer"""
+
+    def __init__(self, filter: str):
+        logging.info("Enabled journal log consumer.")
+        super().__init__()
+        self._filter = filter
+        self._is_running = True
+        self._thread = Thread(target=self._consume_loop)
+        self._thread.start()
+
+    def stop(self):
+        logging.info("Stopping")
+        self._is_running = False
+
+    def _consume_loop(self):
+        logging.info(f"Consuming journal files from {self._filter}")
+
+        if self._filter:
+            consume_command_args = ["journalctl", "-m", "-f", self._filter]
+        else:
+            consume_command_args = ["journalctl", "-m", "-f"]
+
+        f = subprocess.Popen(consume_command_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while self._is_running:
+            log_line = f.stdout.readline().decode(encoding="utf-8")
+            self._notify_subscribers(log_line)
+
+
+
 class NetworkLogConsumer(LogConsumer):
     """Consume logs over SSH from a remote harvester"""
 
@@ -248,6 +278,10 @@ def create_log_consumer_from_config(config: dict) -> Optional[LogConsumer]:
                 remote_port=remote_port,
                 remote_platform=platform,
             )
+
+    if enabled_consumer == "journal_log_consumer":
+        filter = enabled_consumer_config.get("filter")
+        return JournalLogConsumer(filter)
 
     logging.error("Unhandled consumer type")
     return None
